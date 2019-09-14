@@ -1779,17 +1779,7 @@ module Authlogic
         if controller.responds_to_single_access_allowed?
           return controller.single_access_allowed?
         end
-        params_enabled_by_allowed_request_types?
-      end
-
-      def params_enabled_by_allowed_request_types?
-        case single_access_allowed_request_types
-        when Array
-          single_access_allowed_request_types.include?(controller.request_content_type) ||
-            single_access_allowed_request_types.include?(:all)
-        else
-          %i[all any].include?(single_access_allowed_request_types)
-        end
+        single_access_allowed_request_types?
       end
 
       def params_key
@@ -1927,6 +1917,16 @@ module Authlogic
 
       def single_access_allowed_request_types
         self.class.single_access_allowed_request_types
+      end
+
+      def single_access_allowed_request_types?
+        case single_access_allowed_request_types
+        when Array
+          single_access_allowed_request_types.include?(controller.request_content_type) ||
+            single_access_allowed_request_types.include?(:all)
+        else
+          %i[all any].include?(single_access_allowed_request_types)
+        end
       end
 
       def save_cookie
