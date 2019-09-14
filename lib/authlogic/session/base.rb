@@ -403,6 +403,7 @@ module Authlogic
 
       # `persist` callbacks, in order of priority
       persist :persist_by_params
+      persist :persist_by_http_token_auth, if: :persist_by_http_token_auth?
       persist :persist_by_cookie
       persist :persist_by_session
       persist :persist_by_http_basic_auth, if: :persist_by_http_basic_auth?
@@ -480,6 +481,15 @@ module Authlogic
           rw_config(:allow_http_basic_auth, value, false)
         end
         alias allow_http_basic_auth= allow_http_basic_auth
+
+        # Allow users to log in via HTTP (bearer) token authentication.
+        #
+        # * <tt>Default:</tt> false
+        # * <tt>Accepts:</tt> Boolean
+        def allow_http_token_auth(value = nil)
+          rw_config(:allow_http_token_auth, value, false)
+        end
+        alias allow_http_token_auth= allow_http_token_auth
 
         # Lets you change which model to use for authentication.
         #
@@ -742,14 +752,17 @@ module Authlogic
         #
         # Sets the HTTP authentication realm.
         #
-        # Note: This option has no effect unless request_http_basic_auth is true
+        # Note: This option has no effect unless request_http_auth is true
         #
         # * <tt>Default:</tt> 'Application'
         # * <tt>Accepts:</tt> String
-        def http_basic_auth_realm(value = nil)
-          rw_config(:http_basic_auth_realm, value, "Application")
+        def http_auth_realm(value = nil)
+          rw_config(:http_auth_realm, value, "Application")
         end
-        alias http_basic_auth_realm= http_basic_auth_realm
+        alias http_auth_realm= http_auth_realm
+        # For backward compatibility
+        alias http_basic_auth_realm http_auth_realm
+        alias http_basic_auth_realm= http_auth_realm
 
         # Should the cookie be set as httponly?  If true, the cookie will not be
         # accessible from javascript
@@ -881,23 +894,28 @@ module Authlogic
         #
         # If set to true and no HTTP authentication credentials are sent with
         # the request, the Rails controller method
-        # authenticate_or_request_with_http_basic will be used and a '401
+        # authenticate_or_request_with_http_basic (or
+        # authenticate_or_request_with_http_token) will be used and a '401
         # Authorization Required' header will be sent with the response.  In
         # most cases, this will cause the classic HTTP authentication popup to
         # appear in the users browser.
         #
         # If set to false, the Rails controller method
-        # authenticate_with_http_basic is used and no 401 header is sent.
+        # authenticate_with_http_basic (or authenticate_with_http_token)
+        # is used and no 401 header is sent.
         #
         # Note: This parameter has no effect unless allow_http_basic_auth is
         # true
         #
         # * <tt>Default:</tt> false
         # * <tt>Accepts:</tt> Boolean
-        def request_http_basic_auth(value = nil)
-          rw_config(:request_http_basic_auth, value, false)
+        def request_http_auth(value = nil)
+          rw_config(:request_http_auth, value, false)
         end
-        alias request_http_basic_auth= request_http_basic_auth
+        alias request_http_auth= request_http_auth
+        # For backward compatibility
+        alias request_http_basic_auth request_http_auth
+        alias request_http_basic_auth= request_http_auth
 
         # If sessions should be remembered by default or not.
         #
@@ -1569,6 +1587,10 @@ module Authlogic
         self.class.allow_http_basic_auth == true
       end
 
+      def allow_http_token_auth?
+        self.class.allow_http_token_auth == true
+      end
+
       def authenticating_with_password?
         login_field && (!send(login_field).nil? || !send("protected_#{password_field}").nil?)
       end
@@ -1731,6 +1753,24 @@ module Authlogic
         end
       end
 
+      # Returns a Proc to be executed by
+      # `ActionController::HttpAuthentication::Token`
+      # when credentials are present in the HTTP request.
+      #
+      # @api private
+      # @return Proc
+      def http_token_auth_login_proc
+        proc do |token, _options|
+          if token.present?
+            self.unauthorized_record = search_for_record(
+              "find_by_single_access_token",
+              token
+            )
+            self.single_access = valid?
+          end
+        end
+      end
+
       def failed_login_ban_for
         self.class.failed_login_ban_for
       end
@@ -1816,9 +1856,9 @@ module Authlogic
       def persist_by_http_basic_auth
         login_proc = http_basic_auth_login_proc
 
-        if self.class.request_http_basic_auth
+        if self.class.request_http_auth
           controller.authenticate_or_request_with_http_basic(
-            self.class.http_basic_auth_realm,
+            self.class.http_auth_realm,
             &login_proc
           )
         else
@@ -1830,6 +1870,26 @@ module Authlogic
 
       def persist_by_http_basic_auth?
         allow_http_basic_auth? && login_field && password_field
+      end
+
+      def persist_by_http_token_auth
+        login_proc = http_token_auth_login_proc
+
+        if self.class.request_http_auth
+          controller.authenticate_or_request_with_http_token(
+            self.class.http_auth_realm,
+            &login_proc
+          )
+        else
+          controller.authenticate_with_http_token(&login_proc)
+        end
+
+        false
+      end
+
+      def persist_by_http_token_auth?
+        allow_http_token_auth? \
+          && (controller.single_access_allowed? || single_access_allowed_request_types?)
       end
 
       # Tries to validate the session from information in the session
