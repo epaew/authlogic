@@ -405,7 +405,7 @@ module Authlogic
       persist :persist_by_params
       persist :persist_by_cookie
       persist :persist_by_session
-      persist :persist_by_http_auth, if: :persist_by_http_auth?
+      persist :persist_by_http_basic_auth, if: :persist_by_http_basic_auth?
 
       after_persisting :enforce_timeout
       after_persisting :update_session, unless: :single_access?
@@ -1721,7 +1721,7 @@ module Authlogic
       #
       # @api private
       # @return Proc
-      def http_auth_login_proc
+      def http_basic_auth_login_proc
         proc do |login, password|
           if !login.blank? && !password.blank?
             send("#{login_field}=", login)
@@ -1813,8 +1813,8 @@ module Authlogic
         self.single_access = valid?
       end
 
-      def persist_by_http_auth
-        login_proc = http_auth_login_proc
+      def persist_by_http_basic_auth
+        login_proc = http_basic_auth_login_proc
 
         if self.class.request_http_basic_auth
           controller.authenticate_or_request_with_http_basic(
@@ -1828,7 +1828,7 @@ module Authlogic
         false
       end
 
-      def persist_by_http_auth?
+      def persist_by_http_basic_auth?
         allow_http_basic_auth? && login_field && password_field
       end
 
